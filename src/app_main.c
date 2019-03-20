@@ -168,62 +168,66 @@ void handleApdu(volatile uint32_t *flags, volatile uint32_t *tx, uint32_t rx) {
             }
 
             switch (G_io_apdu_buffer[OFFSET_INS]) {
-            case INS_GET_VERSION: {
+                case INS_GET_VERSION: {
+                    unsigned int UX_ALLOWED = (ux.params.len != BOLOS_UX_IGNORE && \
+                                       ux.params.len != BOLOS_UX_CONTINUE);    \
 #ifdef TESTING_ENABLED
-                G_io_apdu_buffer[0] = 0xFF;
+                    G_io_apdu_buffer[0] = 0xFF;
 #else
-                G_io_apdu_buffer[0] = 0;
+                    G_io_apdu_buffer[0] = 0;
 #endif
-                G_io_apdu_buffer[1] = LEDGER_MAJOR_VERSION;
-                G_io_apdu_buffer[2] = LEDGER_MINOR_VERSION;
-                G_io_apdu_buffer[3] = LEDGER_PATCH_VERSION;
-                *tx += 4;
-                THROW(APDU_CODE_OK);
-                break;
-            }
+                    G_io_apdu_buffer[1] = LEDGER_MAJOR_VERSION;
+                    G_io_apdu_buffer[2] = LEDGER_MINOR_VERSION;
+                    G_io_apdu_buffer[3] = LEDGER_PATCH_VERSION;
+                    G_io_apdu_buffer[4] = !UX_ALLOWED;
 
-            case INS_PUBLIC_KEY_SECP256K1: {
-                if (!extractBip32(&bip32_depth, bip32_path, rx, OFFSET_DATA)) {
-                    THROW(APDU_CODE_DATA_INVALID);
-                }
-
-                cx_ecfp_public_key_t publicKey;
-                cx_ecfp_private_key_t privateKey;
-                uint8_t privateKeyData[32];
-
-                // Generate keys
-                os_perso_derive_node_bip32(
-                    CX_CURVE_256K1,
-                    bip32_path, bip32_depth,
-                    privateKeyData, NULL);
-                keys_secp256k1(&publicKey, &privateKey, privateKeyData);
-                memset(privateKeyData, 0, sizeof(privateKeyData));
-                memset(&privateKey, 0, sizeof(privateKey));
-
-                os_memmove(G_io_apdu_buffer, publicKey.W, 65);
-                *tx += 65;
-
-                THROW(APDU_CODE_OK);
-            }
-
-            case INS_SIGN_SECP256K1: {
-                current_sigtype = SECP256K1;
-                if (!process_chunk(tx, rx, true))
+                    *tx += 5;
                     THROW(APDU_CODE_OK);
-
-                const char *error_msg = transaction_parse();
-                if (error_msg != NULL) {
-                    int error_msg_length = strlen(error_msg);
-                    os_memmove(G_io_apdu_buffer, error_msg, error_msg_length);
-                    *tx += (error_msg_length);
-                    THROW(APDU_CODE_BAD_KEY_HANDLE);
+                    break;
                 }
-                view_add_update_transaction_info_event_handler(&transaction_get_display_key_value);
-                view_display_transaction_menu(transaction_get_display_pages());
 
-                *flags |= IO_ASYNCH_REPLY;
-                break;
-            }
+                case INS_PUBLIC_KEY_SECP256K1: {
+                    if (!extractBip32(&bip32_depth, bip32_path, rx, OFFSET_DATA)) {
+                        THROW(APDU_CODE_DATA_INVALID);
+                    }
+
+                    cx_ecfp_public_key_t publicKey;
+                    cx_ecfp_private_key_t privateKey;
+                    uint8_t privateKeyData[32];
+
+                    // Generate keys
+                    os_perso_derive_node_bip32(
+                        CX_CURVE_256K1,
+                        bip32_path, bip32_depth,
+                        privateKeyData, NULL);
+                    keys_secp256k1(&publicKey, &privateKey, privateKeyData);
+                    memset(privateKeyData, 0, sizeof(privateKeyData));
+                    memset(&privateKey, 0, sizeof(privateKey));
+
+                    os_memmove(G_io_apdu_buffer, publicKey.W, 65);
+                    *tx += 65;
+
+                    THROW(APDU_CODE_OK);
+                }
+
+                case INS_SIGN_SECP256K1: {
+                    current_sigtype = SECP256K1;
+                    if (!process_chunk(tx, rx, true))
+                        THROW(APDU_CODE_OK);
+
+                    const char *error_msg = transaction_parse();
+                    if (error_msg != NULL) {
+                        int error_msg_length = strlen(error_msg);
+                        os_memmove(G_io_apdu_buffer, error_msg, error_msg_length);
+                        *tx += (error_msg_length);
+                        THROW(APDU_CODE_BAD_KEY_HANDLE);
+                    }
+                    view_add_update_transaction_info_event_handler(&transaction_get_display_key_value);
+                    view_display_transaction_menu(transaction_get_display_pages());
+
+                    *flags |= IO_ASYNCH_REPLY;
+                    break;
+                }
 
 #ifdef TESTING_ENABLED
                 case INS_HASH_TEST: {
